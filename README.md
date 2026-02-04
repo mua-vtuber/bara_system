@@ -106,19 +106,7 @@ cp config.example.json config.json
 
 `config.json`에서 봇 이름, 모델, 플랫폼 URL 등을 수정합니다.
 
-### 5. Ollama 모델 준비
-
-```bash
-# 사용할 모델 다운로드 (예시)
-ollama pull llama3.1
-
-# 또는 커스텀 Modelfile로 생성
-ollama create my_bot -f Modelfile
-```
-
-`config.json`의 `bot.model`에 사용할 모델명을 입력합니다.
-
-### 6. 프론트엔드 설정
+### 5. 프론트엔드 설정
 
 ```bash
 cd ../frontend

@@ -58,6 +58,23 @@ export function setPlatforms(
   })
 }
 
+/** Register bot on a platform and get API key automatically. */
+export function registerOnPlatform(
+  platform: string,
+  description: string,
+): Promise<{
+  success: boolean
+  message: string
+  api_key?: string
+  claim_url?: string
+  verification_code?: string
+}> {
+  return fetchApi('/api/setup/platforms/register', {
+    method: 'POST',
+    body: { platform, description },
+  })
+}
+
 /** Configure bot behavior settings. */
 export function setBehavior(
   config: BehaviorConfigRequest,

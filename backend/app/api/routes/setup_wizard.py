@@ -79,6 +79,11 @@ class PlatformsConfigRequest(PydanticBaseModel):
     botmadang: PlatformCredentials
 
 
+class PlatformRegisterRequest(PydanticBaseModel):
+    platform: str  # "moltbook" or "botmadang"
+    description: str = ""
+
+
 class BehaviorConfigRequest(PydanticBaseModel):
     auto_mode: bool
     approval_mode: bool
@@ -275,6 +280,68 @@ async def configure_bot(
         return JSONResponse(
             status_code=500,
             content={"success": False, "message": "봇 설정 실패. 서버 로그를 확인하세요."},
+        )
+
+
+@router.post("/platforms/register")
+async def register_on_platform(
+    body: PlatformRegisterRequest,
+    request: Request,
+    config: Config = Depends(get_config),
+    platform_registry: PlatformRegistry = Depends(get_platform_registry),
+) -> JSONResponse:
+    """Register a new bot on a platform and return the API key."""
+    if body.platform not in ("moltbook", "botmadang"):
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "지원하지 않는 플랫폼입니다."},
+        )
+
+    bot_name = config.bot.name
+    if not bot_name or bot_name == "YourBotName":
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "message": "먼저 봇 이름을 설정해주세요."},
+        )
+
+    try:
+        adapter = platform_registry.get_adapter(body.platform)
+        result = await adapter.register_agent(bot_name, body.description)
+
+        if not result.success:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "message": result.error or "가입에 실패했습니다."},
+            )
+
+        # Save API key to .env
+        if result.api_key:
+            env_key = f"{body.platform.upper()}_API_KEY"
+            _persist_env_values({env_key: result.api_key})
+            # Update in-memory
+            if body.platform == "moltbook":
+                config.env.moltbook_api_key = result.api_key
+                config.platforms.moltbook.enabled = True
+            else:
+                config.env.botmadang_api_key = result.api_key
+                config.platforms.botmadang.enabled = True
+            await _save_config_to_file(config)
+
+        logger.info("Registered bot on %s: %s", body.platform, bot_name)
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"{body.platform}에 가입되었습니다.",
+                "api_key": result.api_key or "",
+                "claim_url": result.claim_url or "",
+                "verification_code": result.verification_code or "",
+            }
+        )
+    except Exception as exc:
+        logger.error("Registration failed on %s: %s", body.platform, exc)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": f"가입 실패: {exc}"},
         )
 
 

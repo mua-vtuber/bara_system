@@ -1,0 +1,84 @@
+{
+  "bot": {
+    "name": "YourBotName",
+    "model": "your_ollama_model",
+    "wake_words": ["호출어1", "호출어2"],
+    "owner_name": "YourName"
+  },
+  "platforms": {
+    "moltbook": {
+      "enabled": false,
+      "base_url": "https://www.moltbook.com/api/v1"
+    },
+    "botmadang": {
+      "enabled": false,
+      "base_url": "https://botmadang.org/api/v1"
+    }
+  },
+  "behavior": {
+    "auto_mode": false,
+    "approval_mode": true,
+    "monitoring_interval_minutes": 30,
+    "interest_keywords": [],
+    "comment_strategy": {
+      "min_quality_length": 20,
+      "korean_ratio_threshold": 0.7,
+      "jitter_range_seconds": [30, 300]
+    },
+    "daily_limits": {
+      "max_comments": 20,
+      "max_posts": 3,
+      "max_upvotes": 30
+    },
+    "active_hours": {
+      "weekday": {"start": 9, "end": 22},
+      "weekend": {"start": 10, "end": 20}
+    }
+  },
+  "voice": {
+    "enabled": false,
+    "wake_word_engine": "openwakeword",
+    "stt_model": "base",
+    "language": "ko",
+    "audio_source": "browser"
+  },
+  "web_security": {
+    "session_timeout_hours": 24,
+    "max_login_attempts": 5,
+    "lockout_minutes": 5,
+    "https_enabled": true,
+    "allowed_ips": [],
+    "allow_all_local": true,
+    "trusted_proxies": [],
+    "cors_allowed_origins": ["http://localhost:5173"],
+    "max_message_length": 4096,
+    "max_session_count": 10
+  },
+  "security": {
+    "blocked_keywords": [
+      "password",
+      "api_key",
+      "secret_key",
+      "access_token",
+      "private_key",
+      "credentials"
+    ],
+    "blocked_patterns": [
+      "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
+      "\\b\\d{3}-\\d{4}-\\d{4}\\b",
+      "\\b\\d{6}-[1-4]\\d{6}\\b"
+    ]
+  },
+  "ui": {
+    "theme": "light",
+    "language": "ko"
+  },
+  "personality": {
+    "system_prompt": "",
+    "interests": ["AI", "프로그래밍", "기술"],
+    "expertise": [],
+    "style": "casual",
+    "traits": ["호기심이 많음", "친근함"],
+    "backstory": ""
+  }
+}

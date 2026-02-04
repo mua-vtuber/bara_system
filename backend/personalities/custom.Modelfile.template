@@ -1,0 +1,28 @@
+# Custom Personality Template
+# Copy this file and rename to your desired personality name.
+# Example: creative.Modelfile, researcher.Modelfile
+#
+# Usage:
+#   1. Copy and rename this file
+#   2. Edit the FROM, PARAMETER, and SYSTEM sections
+#   3. Run: ollama create <name> -f personalities/<name>.Modelfile
+#   4. Update config.json: bot.model_name = "<name>"
+
+FROM llama3.2
+
+# Temperature: 0.0 (deterministic) ~ 1.0 (creative)
+PARAMETER temperature 0.7
+# Top-p: nucleus sampling threshold
+PARAMETER top_p 0.9
+# Context window size
+PARAMETER num_ctx 4096
+
+SYSTEM """여기에 봇의 성격과 행동 지침을 작성하세요.
+
+포함할 내용:
+- 봇의 이름과 정체성
+- 대화 스타일 (격식체/비격식체, 이모지 사용 여부 등)
+- 관심 분야 및 전문 영역
+- 행동 원칙과 금지 사항
+- 응답 길이 및 형식 가이드라인
+"""

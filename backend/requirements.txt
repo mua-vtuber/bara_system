@@ -1,0 +1,16 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+aiosqlite==0.22.1
+aiohttp==3.13.3
+python-dotenv==1.0.1
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# Voice subsystem (optional)
+# Install with: pip install openai-whisper torch numpy soundfile
+# openai-whisper  # Speech-to-text
+# torch  # Required by Whisper for GPU acceleration
+# numpy  # Audio processing
+# soundfile  # Audio file decoding (WAV, MP3, etc.)
+# openwakeword  # Wake word detection (alternative to porcupine)
+# pvporcupine  # Wake word detection (commercial, requires license)

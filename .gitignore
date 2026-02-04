@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+
+# Build output
+dist/
+build/
+*.egg-info/
+
+# Environment & secrets
+**/.env
+**/config.json
+
+# Database
+**/*.db
+**/*.db-wal
+**/*.db-shm
+
+# SSL certificates
+certs/
+
+# Backups
+backups/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+
+# Kill switch
+STOP_BOT
+
+# Claude Code
+.claude/
+
+# Windows artifacts
+nul

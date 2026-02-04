@@ -29,3 +29,4 @@ class BotMemory(BaseModel):
     topics: list[str] = []
     relationship_notes: str = ""
     sentiment: str = "neutral"
+    embedding: Optional[bytes] = None

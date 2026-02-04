@@ -167,3 +167,10 @@ class BotMemoryRepository(BaseRepository):
             "UPDATE bot_memory SET topics = ? WHERE id = ?",
             (self._serialize_topics(topics), memory_id),
         )
+
+    async def update_embedding(self, memory_id: int, embedding: bytes) -> None:
+        """Update the embedding blob for a bot_memory record."""
+        await self.execute_write(
+            "UPDATE bot_memory SET embedding = ? WHERE id = ?",
+            (embedding, memory_id),
+        )

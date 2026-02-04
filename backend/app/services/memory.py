@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.core.config import Config
+from app.core.constants import EMBEDDING_CANDIDATE_FETCH_LIMIT
 from app.core.logging import get_logger
 from app.models.collected_info import CollectedInfo, CollectedInfoCreate
 from app.models.memory import BotMemory, BotMemoryCreate
@@ -11,6 +12,7 @@ from app.repositories.memory import BotMemoryRepository
 
 if TYPE_CHECKING:
     from app.models.platform import PlatformPost
+    from app.services.embedding import EmbeddingService
 
 logger = get_logger(__name__)
 
@@ -29,10 +31,12 @@ class MemoryService:
         memory_repo: BotMemoryRepository,
         collected_info_repo: CollectedInfoRepository,
         config: Config,
+        embedding_service: EmbeddingService | None = None,
     ) -> None:
         self._memory_repo = memory_repo
         self._info_repo = collected_info_repo
         self._config = config
+        self._embedding = embedding_service
 
     # ------------------------------------------------------------------
     # Record methods (called by event handlers or directly)
@@ -48,6 +52,18 @@ class MemoryService:
 
         try:
             tags = self._extract_topic_tags(post)
+
+            # Generate embedding if available
+            embedding_blob: bytes | None = None
+            if self._embedding and self._embedding.enabled:
+                text_for_embed = f"{post.title or ''} {post.content or ''}"[:500]
+                try:
+                    vec = await self._embedding.embed_text(text_for_embed)
+                    if vec is not None:
+                        embedding_blob = self._embedding.vector_to_blob(vec)
+                except Exception as emb_exc:
+                    logger.debug("Embedding generation failed for post: %s", emb_exc)
+
             await self._info_repo.add(
                 CollectedInfoCreate(
                     platform=platform,
@@ -57,6 +73,7 @@ class MemoryService:
                     content=(post.content or "")[:2000],
                     source_url=post.url or "",
                     tags=",".join(tags) if tags else None,
+                    embedding=embedding_blob,
                 )
             )
             logger.debug(
@@ -104,14 +121,58 @@ class MemoryService:
         platform: str = "",
         limit: int = 5,
     ) -> list[CollectedInfo]:
-        """Find collected info related to a topic."""
+        """Find collected info related to a topic.
+
+        Uses vector similarity search when embeddings are available,
+        falls back to keyword LIKE search otherwise.
+        """
+        # Try vector search first
+        if self._embedding and self._embedding.enabled:
+            try:
+                results = await self._vector_search(topic, limit)
+                if results:
+                    return results
+            except Exception as exc:
+                logger.warning("Vector search failed, falling back to keyword: %s", exc)
+
+        # Fallback: keyword search
         try:
-            results = await self._info_repo.search(
-                query=topic, limit=limit
-            )
-            return results
+            return await self._info_repo.search(query=topic, limit=limit)
         except Exception as exc:
             logger.warning("Failed to recall related info: %s", exc)
+            return []
+
+    async def recall_related_scored(
+        self,
+        topic: str,
+        limit: int = 5,
+    ) -> list[tuple[CollectedInfo, float]]:
+        """Find collected info with similarity scores.
+
+        Returns list of (CollectedInfo, score) tuples sorted by score desc.
+        Falls back to keyword search with score=1.0 for all results.
+        """
+        if self._embedding and self._embedding.enabled:
+            try:
+                vec = await self._embedding.embed_text(topic)
+                if vec is not None:
+                    candidates = await self._info_repo.get_embedding_candidates(
+                        limit=EMBEDDING_CANDIDATE_FETCH_LIMIT
+                    )
+                    if candidates:
+                        ranked = self._embedding.rank_by_similarity(vec, candidates)
+                        top_ids = [rid for rid, _ in ranked[:limit]]
+                        scores = {rid: score for rid, score in ranked[:limit]}
+                        items = await self._info_repo.get_by_ids(top_ids)
+                        return [(item, scores.get(item.id, 0.0)) for item in items]
+            except Exception as exc:
+                logger.warning("Scored vector search failed: %s", exc)
+
+        # Fallback: keyword search with uniform score
+        try:
+            results = await self._info_repo.search(query=topic, limit=limit)
+            return [(item, 1.0) for item in results]
+        except Exception:
             return []
 
     async def recall_bot(
@@ -231,6 +292,31 @@ class MemoryService:
                 seen.add(lower)
                 unique.append(kw)
         return unique
+
+    async def _vector_search(
+        self,
+        topic: str,
+        limit: int = 5,
+    ) -> list[CollectedInfo]:
+        """Semantic vector search via EmbeddingService."""
+        assert self._embedding is not None
+
+        vec = await self._embedding.embed_text(topic)
+        if vec is None:
+            return []
+
+        candidates = await self._info_repo.get_embedding_candidates(
+            limit=EMBEDDING_CANDIDATE_FETCH_LIMIT
+        )
+        if not candidates:
+            return []
+
+        ranked = self._embedding.rank_by_similarity(vec, candidates)
+        if not ranked:
+            return []
+
+        top_ids = [rid for rid, _ in ranked[:limit]]
+        return await self._info_repo.get_by_ids(top_ids)
 
     def _is_interesting(self, post: PlatformPost) -> bool:
         """Check if a post matches any interest keywords."""

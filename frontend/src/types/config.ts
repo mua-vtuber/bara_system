@@ -104,6 +104,16 @@ export interface PersonalityConfig {
   backstory: string
 }
 
+// -- Embedding -------------------------------------------------------------
+
+export interface EmbeddingConfig {
+  enabled: boolean
+  model: string
+  dimensions: number
+  similarity_threshold: number
+  dedup_threshold: number
+}
+
 // -- Full config -----------------------------------------------------------
 
 export interface AppConfig {
@@ -115,4 +125,5 @@ export interface AppConfig {
   web_security: WebSecurityConfig
   security: SecurityConfig
   ui: UIConfig
+  embedding: EmbeddingConfig
 }

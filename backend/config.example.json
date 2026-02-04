@@ -80,5 +80,12 @@
     "style": "casual",
     "traits": ["호기심이 많음", "친근함"],
     "backstory": ""
+  },
+  "embedding": {
+    "enabled": false,
+    "model": "nomic-embed-text",
+    "dimensions": 768,
+    "similarity_threshold": 0.3,
+    "dedup_threshold": 0.95
   }
 }

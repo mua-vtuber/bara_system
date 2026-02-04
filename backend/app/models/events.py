@@ -184,3 +184,16 @@ class MissionCompletedEvent(Event):
     mission_id: int = 0
     topic: str = ""
     response_count: int = 0
+
+
+# -- Bot response events ---------------------------------------------------
+
+@dataclass(frozen=True)
+class BotResponseGeneratedEvent(Event):
+    """Fired after the bot generates any response (comment, reply, post)."""
+    platform: str = ""
+    action_type: str = ""  # "comment", "reply", "post"
+    original_content: str = ""  # the post/notification content that triggered this
+    bot_response: str = ""  # what the bot generated
+    post_id: str = ""
+    author: str = ""  # author of the original content

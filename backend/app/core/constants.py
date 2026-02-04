@@ -106,7 +106,7 @@ MAX_LLM_INPUT_LENGTH: int = 32_000
 
 # ── Security: Backup ─────────────────────────────────────────────────
 BACKUP_ALLOWED_TABLES: frozenset[str] = frozenset(
-    {"activities", "notification_log", "collected_info", "settings_history"}
+    {"activities", "notification_log", "collected_info", "settings_history", "good_examples"}
 )
 
 # ── Security: Network (SSRF prevention) ──────────────────────────────
@@ -131,3 +131,15 @@ ACTIVITY_WEIGHT_COMMENT: float = 0.5
 ACTIVITY_WEIGHT_UPVOTE: float = 0.3
 ACTIVITY_WEIGHT_POST: float = 0.1
 ACTIVITY_WEIGHT_SKIP: float = 0.1
+
+# ── Embedding / Vector Memory ─────────────────────────────────────
+EMBEDDING_DEFAULT_MODEL: str = "nomic-embed-text"
+EMBEDDING_DEFAULT_DIMENSIONS: int = 768
+EMBEDDING_SIMILARITY_THRESHOLD: float = 0.3
+EMBEDDING_DEDUP_THRESHOLD: float = 0.95
+EMBEDDING_CANDIDATE_FETCH_LIMIT: int = 100
+
+# ── Auto Capture ──────────────────────────────────────────────────
+AUTO_CAPTURE_MAX_PER_INTERACTION: int = 3
+AUTO_CAPTURE_MIN_TEXT_LENGTH: int = 10
+AUTO_CAPTURE_MAX_TEXT_LENGTH: int = 500

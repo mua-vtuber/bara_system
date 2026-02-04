@@ -6,6 +6,7 @@ from app.models.conversation import Conversation, ConversationCreate
 from app.models.activity import Activity, ActivityCreate, DailyCounts, DailyLimits
 from app.models.notification import NotificationLog, NotificationCreate
 from app.models.collected_info import CollectedInfo, CollectedInfoCreate
+from app.models.good_example import GoodExample, GoodExampleCreate
 from app.models.settings import SettingsSnapshot
 from app.models.platform import (
     PlatformPost,
@@ -90,4 +91,6 @@ __all__ = [
     "BotStatusChangedEvent",
     "TaskQueuedEvent",
     "TaskCompletedEvent",
+    "GoodExample",
+    "GoodExampleCreate",
 ]

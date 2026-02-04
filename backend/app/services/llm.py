@@ -37,6 +37,7 @@ class LLMService:
         self._lock = asyncio.Lock()
         self._model_name: str = config.bot.model
         self._ollama_base_url: str = ollama_base_url.rstrip("/")
+        self._embedding_model: str = config.embedding.model if config.embedding.enabled else ""
 
     # ------------------------------------------------------------------
     # Properties
@@ -173,6 +174,59 @@ class LLMService:
             return True  # any 2xx is fine
         except Exception:
             return False
+
+    async def embed(
+        self,
+        text: str | list[str],
+        *,
+        model: str | None = None,
+    ) -> list[list[float]]:
+        """Generate embeddings via Ollama ``/api/embed``.
+
+        Parameters
+        ----------
+        text:
+            A single string or list of strings to embed.
+        model:
+            Override the embedding model. Defaults to config.embedding.model.
+
+        Returns
+        -------
+        list[list[float]]
+            One embedding vector per input string.
+        """
+        chosen_model = model or self._embedding_model
+        if not chosen_model:
+            raise LLMGenerationError(
+                "No embedding model configured. Set embedding.model in config."
+            )
+
+        url = f"{self._ollama_base_url}/api/embed"
+        input_data = text if isinstance(text, list) else [text]
+
+        body = {
+            "model": chosen_model,
+            "input": input_data,
+        }
+
+        try:
+            async with self._lock:
+                data = await self._http_client.post(
+                    url, json=body, platform="ollama"
+                )
+        except Exception as exc:
+            raise LLMConnectionError(
+                f"Embedding request failed: {exc}"
+            ) from exc
+
+        if not isinstance(data, dict):
+            raise LLMGenerationError("Unexpected non-JSON response from Ollama embed")
+
+        embeddings = data.get("embeddings", [])
+        if not embeddings:
+            raise LLMGenerationError("Ollama returned empty embeddings")
+
+        return embeddings
 
     async def switch_model(self, model_name: str) -> None:
         """Change the active model name at runtime."""

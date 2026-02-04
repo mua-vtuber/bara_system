@@ -3,15 +3,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.core.config import Config
-from app.core.constants import MIN_COMMENT_LENGTH
+from app.core.constants import EMBEDDING_CANDIDATE_FETCH_LIMIT, MIN_COMMENT_LENGTH
 from app.core.logging import get_logger
 from app.core.security import SecurityFilter
 
 if TYPE_CHECKING:
     from app.models.collected_info import CollectedInfo
+    from app.models.good_example import GoodExample
     from app.models.memory import BotMemory
     from app.models.mission import Mission
     from app.models.platform import PlatformComment, PlatformNotification, PlatformPost
+    from app.repositories.good_example import GoodExampleRepository
+    from app.services.embedding import EmbeddingService
 
 logger = get_logger(__name__)
 
@@ -30,6 +33,16 @@ class PromptBuilder:
     ) -> None:
         self._config = config
         self._security = security_filter
+        self._example_repo: GoodExampleRepository | None = None
+        self._embedding: EmbeddingService | None = None
+
+    def set_example_repo(self, repo: GoodExampleRepository) -> None:
+        """Inject good example repository for few-shot context."""
+        self._example_repo = repo
+
+    def set_embedding_service(self, service: EmbeddingService) -> None:
+        """Inject embedding service for semantic search of examples."""
+        self._embedding = service
 
     # ------------------------------------------------------------------
     # System prompt
@@ -83,10 +96,17 @@ class PromptBuilder:
         *,
         memories: list[BotMemory] | None = None,
         related_info: list[CollectedInfo] | None = None,
+        related_scores: dict[int, float] | None = None,
+        fewshot_context: str = "",
     ) -> str:
         """Build a prompt for generating a comment on a post."""
         sanitize = self._security.sanitize_input
         sections: list[str] = []
+
+        # Few-shot examples (placed first for better LLM context)
+        if fewshot_context:
+            sections.append(fewshot_context)
+            sections.append("")
 
         # Post info
         sections.append("다음 글에 대한 자연스러운 댓글을 작성해주세요.")
@@ -113,18 +133,92 @@ class PromptBuilder:
                 if author_memory.relationship_notes:
                     sections.append(f"관계 메모: {author_memory.relationship_notes[:200]}")
 
-        # Related collected info
+        # Related collected info (sorted by relevance score if available)
         if related_info:
             sections.append("")
             sections.append("[참고] 관련 기억:")
-            for info in related_info[:3]:
+            scored_info = related_info[:3]
+            if related_scores:
+                scored_info = sorted(
+                    related_info[:5],
+                    key=lambda i: related_scores.get(i.id, 0.0),
+                    reverse=True,
+                )[:3]
+            for info in scored_info:
                 preview = (info.content or "")[:100]
-                sections.append(f"- {sanitize(info.title or '무제')}: {sanitize(preview)}")
+                score_str = ""
+                if related_scores and info.id in related_scores:
+                    score_str = f" (관련도: {related_scores[info.id]:.0%})"
+                sections.append(f"- {sanitize(info.title or '무제')}: {sanitize(preview)}{score_str}")
 
         sections.append("")
         sections.append("댓글:")
 
         return "\n".join(sections)
+
+    # ------------------------------------------------------------------
+    # Few-shot context
+    # ------------------------------------------------------------------
+
+    async def build_fewshot_context(
+        self,
+        topic: str,
+        action_type: str = "comment",
+        limit: int = 2,
+    ) -> str:
+        """Build few-shot example context from good examples.
+
+        Uses vector similarity to find relevant examples, falls back
+        to engagement-score ordering.
+        """
+        if self._example_repo is None:
+            return ""
+
+        examples: list[GoodExample] = []
+
+        # Try vector search first
+        if self._embedding and self._embedding.enabled:
+            try:
+                vec = await self._embedding.embed_text(topic)
+                if vec is not None:
+                    candidates = await self._example_repo.get_embedding_candidates(
+                        limit=EMBEDDING_CANDIDATE_FETCH_LIMIT,
+                        action_type=action_type,
+                    )
+                    if candidates:
+                        ranked = self._embedding.rank_by_similarity(vec, candidates)
+                        top_ids = [rid for rid, _ in ranked[:limit]]
+                        if top_ids:
+                            examples = await self._example_repo.get_by_ids(top_ids)
+            except Exception:
+                pass  # Fall through to engagement-based fallback
+
+        # Fallback: top by engagement score
+        if not examples:
+            try:
+                examples = await self._example_repo.get_by_action_type(
+                    action_type, limit=limit
+                )
+            except Exception:
+                return ""
+
+        if not examples:
+            return ""
+
+        # Format examples
+        lines: list[str] = ["[좋은 응답 예시]"]
+        for i, ex in enumerate(examples[:limit], 1):
+            lines.append(f"예시 {i}:")
+            if ex.context_title:
+                lines.append(f"  글: {ex.context_title[:80]}")
+            if ex.context_content:
+                lines.append(f"  내용: {ex.context_content[:120]}")
+            lines.append(f"  응답: {ex.bot_response[:200]}")
+            lines.append(f"  (참여도: {ex.engagement_score:.1f})")
+            lines.append("")
+
+        lines.append("위 예시처럼 참여를 이끌어내는 자연스러운 응답을 작성해주세요.")
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Reply prompt

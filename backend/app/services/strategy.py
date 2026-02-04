@@ -10,10 +10,12 @@ from pydantic import Field as PydanticField
 
 from app.core.config import Config
 from app.core.constants import MIN_COMMENT_LENGTH
+from app.core.events import EventBus
 from app.core.logging import get_logger
 from app.core.security import SecurityFilter
 from app.models.activity import Activity, DailyCounts, DailyLimits
 from app.models.base import BaseModel
+from app.models.events import BotResponseGeneratedEvent
 from app.models.platform import PlatformComment, PlatformNotification, PlatformPost
 from app.repositories.activity import ActivityRepository
 from app.services.llm import LLMService
@@ -253,12 +255,14 @@ class StrategyEngine:
         llm_service: LLMService,
         config: Config,
         security_filter: SecurityFilter,
+        event_bus: EventBus | None = None,
     ) -> None:
         self._strategy = strategy
         self._llm = llm_service
         self._config = config
         self._security = security_filter
         self._prompt_builder: PromptBuilder | None = None
+        self._event_bus = event_bus
 
     def set_prompt_builder(self, prompt_builder: PromptBuilder) -> None:
         """Inject prompt builder for personality-aware prompt generation."""
@@ -319,8 +323,20 @@ class StrategyEngine:
         self, post: PlatformPost, platform: str
     ) -> QualityCheckedComment:
         """Generate a comment for *post* via LLM, then quality-check it."""
+        fewshot_context = ""
         if self._prompt_builder:
-            prompt = self._prompt_builder.build_comment_prompt(post)
+            # Build few-shot context from good examples
+            topic_text = f"{post.title or ''} {post.content or ''}"[:200]
+            try:
+                fewshot_context = await self._prompt_builder.build_fewshot_context(
+                    topic_text, action_type="comment", limit=2
+                )
+            except Exception as exc:
+                logger.debug("Few-shot context build failed: %s", exc)
+
+            prompt = self._prompt_builder.build_comment_prompt(
+                post, fewshot_context=fewshot_context
+            )
             system = self._prompt_builder.build_system_prompt()
         else:
             bot_name = self._config.bot.name
@@ -348,6 +364,20 @@ class StrategyEngine:
                 passed=False,
                 issues=[f"LLM generation error: {exc}"],
             )
+
+        # Publish event for auto-capture
+        if self._event_bus and content:
+            try:
+                await self._event_bus.publish(BotResponseGeneratedEvent(
+                    platform=platform,
+                    action_type="comment",
+                    original_content=f"{post.title or ''}\n{post.content or ''}"[:500],
+                    bot_response=content,
+                    post_id=post.post_id,
+                    author=post.author or "",
+                ))
+            except Exception as exc:
+                logger.debug("Failed to publish BotResponseGeneratedEvent: %s", exc)
 
         return self._check_quality(content, platform)
 
@@ -402,6 +432,20 @@ class StrategyEngine:
                 issues=[f"LLM generation error: {exc}"],
             )
 
+        # Publish event for auto-capture
+        if self._event_bus and content:
+            try:
+                await self._event_bus.publish(BotResponseGeneratedEvent(
+                    platform=notification.platform,
+                    action_type="reply",
+                    original_content=(notification.content_preview or "")[:500],
+                    bot_response=content,
+                    post_id=original_post.post_id,
+                    author=notification.actor_name or "",
+                ))
+            except Exception as exc:
+                logger.debug("Failed to publish BotResponseGeneratedEvent: %s", exc)
+
         return self._check_quality(content, notification.platform)
 
     # ------------------------------------------------------------------
@@ -445,6 +489,20 @@ class StrategyEngine:
             )
 
         title, content, community = self._parse_post_response(raw)
+
+        # Publish event for auto-capture
+        if self._event_bus and content:
+            try:
+                await self._event_bus.publish(BotResponseGeneratedEvent(
+                    platform=platform,
+                    action_type="post",
+                    original_content=topic[:500],
+                    bot_response=f"{title}\n{content}"[:500],
+                    post_id="",
+                    author="",
+                ))
+            except Exception as exc:
+                logger.debug("Failed to publish BotResponseGeneratedEvent: %s", exc)
 
         issues: list[str] = []
         if not title:

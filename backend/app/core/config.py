@@ -19,6 +19,10 @@ from app.core.constants import (
     DEFAULT_MAX_SESSION_COUNT,
     DEFAULT_MONITORING_INTERVAL_MINUTES,
     DEFAULT_SESSION_TIMEOUT_HOURS,
+    EMBEDDING_DEFAULT_DIMENSIONS,
+    EMBEDDING_DEFAULT_MODEL,
+    EMBEDDING_DEDUP_THRESHOLD,
+    EMBEDDING_SIMILARITY_THRESHOLD,
     MIN_COMMENT_LENGTH,
     DEFAULT_KOREAN_RATIO_THRESHOLD,
 )
@@ -119,6 +123,14 @@ class PersonalityConfig(BaseModel):
     backstory: str = ""
 
 
+class EmbeddingConfig(BaseModel):
+    enabled: bool = False
+    model: str = EMBEDDING_DEFAULT_MODEL
+    dimensions: int = EMBEDDING_DEFAULT_DIMENSIONS
+    similarity_threshold: float = EMBEDDING_SIMILARITY_THRESHOLD
+    dedup_threshold: float = EMBEDDING_DEDUP_THRESHOLD
+
+
 class EnvSettings(BaseSettings):
     """Loads secrets from .env file or environment variables."""
 
@@ -149,6 +161,7 @@ class Config:
         security: SecurityConfig,
         ui: UIConfig,
         personality: PersonalityConfig,
+        embedding: EmbeddingConfig,
         env: EnvSettings,
         config_path: Optional[Path] = None,
     ) -> None:
@@ -160,6 +173,7 @@ class Config:
         self.security = security
         self.ui = ui
         self.personality = personality
+        self.embedding = embedding
         self.env = env
         self.config_path = config_path
         self._observers: list[Callable[[str, Any, Any], Any]] = []
@@ -204,6 +218,7 @@ class Config:
                 security=SecurityConfig(**raw.get("security", {})),
                 ui=UIConfig(**raw.get("ui", {})),
                 personality=PersonalityConfig(**raw.get("personality", {})),
+                embedding=EmbeddingConfig(**raw.get("embedding", {})),
                 env=env,
                 config_path=config_path,
             )
@@ -268,7 +283,7 @@ class Config:
 
         raw = json.loads(self.config_path.read_text(encoding="utf-8"))
 
-        mutable_sections = ("behavior", "voice", "web_security", "security", "ui", "personality")
+        mutable_sections = ("behavior", "voice", "web_security", "security", "ui", "personality", "embedding")
         for section in mutable_sections:
             if section in raw:
                 await self.update_section(section, raw[section])
@@ -283,6 +298,7 @@ class Config:
             "security": self.security.model_dump(),
             "ui": self.ui.model_dump(),
             "personality": self.personality.model_dump(),
+            "embedding": self.embedding.model_dump(),
         }
 
     # ------------------------------------------------------------------

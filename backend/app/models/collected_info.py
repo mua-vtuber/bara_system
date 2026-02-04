@@ -14,6 +14,7 @@ class CollectedInfoCreate(BaseModel):
     content: Optional[str] = None
     source_url: Optional[str] = None
     tags: Optional[str] = None
+    embedding: Optional[bytes] = None
 
 
 class CollectedInfo(BaseModel):
@@ -27,3 +28,4 @@ class CollectedInfo(BaseModel):
     source_url: Optional[str] = None
     bookmarked: bool = False
     tags: Optional[str] = None
+    embedding: Optional[bytes] = None

@@ -48,11 +48,20 @@ from app.services.scheduler import Scheduler
 from app.services.strategy import DefaultBehaviorStrategy, StrategyEngine
 from app.services.translation import TranslationService
 from app.services.voice import VoiceService
-from app.models.events import CommentPostedEvent, NewPostDiscoveredEvent
+from app.models.events import (
+    BotResponseGeneratedEvent,
+    CommentPostedEvent,
+    NewPostDiscoveredEvent,
+    NotificationReceivedEvent,
+)
 from app.repositories.collected_info import CollectedInfoRepository
+from app.repositories.good_example import GoodExampleRepository
 from app.repositories.memory import BotMemoryRepository
 from app.repositories.mission import MissionRepository
 from app.services.activity_mixer import ActivityMixer
+from app.services.auto_capture import AutoCaptureService
+from app.services.embedding import EmbeddingService
+from app.services.example_evaluator import ExampleEvaluatorService
 from app.services.memory import MemoryService
 from app.services.mission import MissionService
 from app.services.prompt_builder import PromptBuilder
@@ -93,6 +102,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     platform_registry.initialize()
 
+    # -- Embedding service (optional, depends on config) -------------------------
+    embedding_service: EmbeddingService | None = None
+    if config.embedding.enabled:
+        embedding_service = EmbeddingService(llm_service, config)
+        logger.info("Embedding service enabled (model=%s)", config.embedding.model)
+    else:
+        logger.info("Embedding service disabled")
+
+    # -- Event system and WebSocket manager ------------------------------------
+    event_bus = EventBus()
+    ws_manager = WebSocketManager(auth_service)
+
     # -- Strategy engine and translation service --------------------------------
     behavior_strategy = DefaultBehaviorStrategy(config)
     strategy_engine = StrategyEngine(
@@ -100,12 +121,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         llm_service=llm_service,
         config=config,
         security_filter=security_filter,
+        event_bus=event_bus,
     )
     translation_service = TranslationService(llm_service)
-
-    # -- Event system and WebSocket manager ------------------------------------
-    event_bus = EventBus()
-    ws_manager = WebSocketManager(auth_service)
 
     # -- Task queue ------------------------------------------------------------
     task_queue = TaskQueue(rate_limiters)
@@ -161,11 +179,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     collected_info_repo = CollectedInfoRepository(db)
     memory_repo = BotMemoryRepository(db)
     mission_repo = MissionRepository(db)
+    good_example_repo = GoodExampleRepository(db)
 
     memory_service = MemoryService(
         memory_repo=memory_repo,
         collected_info_repo=collected_info_repo,
         config=config,
+        embedding_service=embedding_service,
     )
 
     prompt_builder = PromptBuilder(
@@ -195,6 +215,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Inject prompt builder into strategy engine
     strategy_engine.set_prompt_builder(prompt_builder)
 
+    # Inject few-shot and embedding into prompt builder
+    prompt_builder.set_example_repo(good_example_repo)
+    if embedding_service:
+        prompt_builder.set_embedding_service(embedding_service)
+
+    # -- Auto-capture service --------------------------------------------------
+    auto_capture = AutoCaptureService(
+        collected_info_repo=collected_info_repo,
+        embedding_service=embedding_service,
+    )
+
+    # -- Example evaluator service ---------------------------------------------
+    example_evaluator = ExampleEvaluatorService(
+        activity_repo=activity_repo,
+        example_repo=good_example_repo,
+        platform_registry=platform_registry,
+        embedding_service=embedding_service,
+    )
+
     # Inject services into feed monitor
     feed_monitor.set_memory_service(memory_service)
     feed_monitor.set_activity_mixer(activity_mixer)
@@ -203,6 +242,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Subscribe memory service to events
     await event_bus.subscribe(NewPostDiscoveredEvent, memory_service.on_new_post)
     await event_bus.subscribe(CommentPostedEvent, memory_service.on_comment_posted)
+
+    # Subscribe auto-capture to events
+    await event_bus.subscribe(BotResponseGeneratedEvent, auto_capture.on_bot_response)
+    await event_bus.subscribe(NotificationReceivedEvent, auto_capture.on_notification_for_capture)
 
     # -- Voice service (optional, only if enabled) -----------------------------
     voice_service = VoiceService(config=config, event_bus=event_bus)
@@ -238,6 +281,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.prompt_builder = prompt_builder
     app.state.activity_mixer = activity_mixer
     app.state.response_collector = response_collector
+    app.state.embedding_service = embedding_service
+    app.state.auto_capture = auto_capture
+    app.state.example_evaluator = example_evaluator
+    app.state.good_example_repo = good_example_repo
 
     # -- Start automation (task queue + scheduler) -----------------------------
     await task_queue.start()
@@ -254,6 +301,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "mission_advance",
             mission_service.advance_all,
             600,
+        )
+        await scheduler.add_task(
+            "example_evaluator",
+            example_evaluator.evaluate_recent_activities,
+            3600,  # 1 hour
         )
         logger.info("Auto-mode enabled: scheduler started")
     else:

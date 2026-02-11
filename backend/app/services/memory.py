@@ -24,6 +24,9 @@ class MemoryService:
     - Automatic recording of interesting posts (via interest keyword matching)
     - Tracking interactions with other bots
     - Querying related memories for context injection
+
+    When a MemoryFacade is attached via ``set_facade()``, new-style calls
+    are delegated to the facade while legacy methods continue to work.
     """
 
     def __init__(
@@ -37,6 +40,12 @@ class MemoryService:
         self._info_repo = collected_info_repo
         self._config = config
         self._embedding = embedding_service
+        self._facade: object | None = None  # MemoryFacade (optional)
+
+    def set_facade(self, facade: object) -> None:
+        """Attach the new MemoryFacade for enhanced memory operations."""
+        self._facade = facade
+        logger.info("MemoryFacade attached to MemoryService")
 
     # ------------------------------------------------------------------
     # Record methods (called by event handlers or directly)
@@ -332,3 +341,48 @@ class MemoryService:
         text = f"{post.title or ''} {post.content or ''}".lower()
         keywords = self._get_all_interests()
         return [kw for kw in keywords if kw.lower() in text][:5]
+
+    # ------------------------------------------------------------------
+    # Facade-delegated enhanced API
+    # ------------------------------------------------------------------
+
+    async def get_context_for_post_enhanced(
+        self, post: PlatformPost, platform: str
+    ) -> tuple[str, str]:
+        """Get memory + entity context via MemoryFacade.
+
+        Returns (memory_context, entity_context). Falls back to empty
+        strings if no facade is attached.
+        """
+        if self._facade is None:
+            return "", ""
+
+        from app.services.memory.facade import MemoryFacade
+        facade: MemoryFacade = self._facade  # type: ignore[assignment]
+
+        topic_text = f"{post.title or ''} {post.content or ''}"[:200]
+        ctx = await facade.get_assembled_context(
+            query=topic_text,
+            platform=platform,
+            author=post.author or "",
+            user_content=topic_text,
+        )
+        return ctx.memory_context, ctx.entity_context
+
+    async def process_turn(
+        self,
+        user_content: str,
+        bot_content: str,
+        author: str = "",
+        platform: str = "",
+    ) -> None:
+        """Feed a conversation turn into the memory system.
+
+        No-op if no facade is attached.
+        """
+        if self._facade is None:
+            return
+
+        from app.services.memory.facade import MemoryFacade
+        facade: MemoryFacade = self._facade  # type: ignore[assignment]
+        await facade.process_turn(user_content, bot_content, author, platform)

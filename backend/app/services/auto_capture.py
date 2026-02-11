@@ -46,6 +46,12 @@ class AutoCaptureService:
     ) -> None:
         self._info_repo = collected_info_repo
         self._embedding = embedding_service
+        self._memory_facade: object | None = None
+
+    def set_memory_facade(self, facade: object) -> None:
+        """Attach MemoryFacade for dual-path storage into knowledge_nodes."""
+        self._memory_facade = facade
+        logger.info("MemoryFacade attached to AutoCaptureService")
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -224,6 +230,21 @@ class AutoCaptureService:
                     embedding=embedding_blob,
                 )
             )
+
+            # Dual-path: also store in knowledge_nodes via facade
+            if self._memory_facade is not None:
+                try:
+                    from app.services.memory.facade import MemoryFacade
+                    facade: MemoryFacade = self._memory_facade  # type: ignore[assignment]
+                    await facade.store_fact(
+                        content=content,
+                        importance=0.5,
+                        platform=platform,
+                        author=author,
+                    )
+                except Exception as facade_exc:
+                    logger.debug("Facade store failed (non-fatal): %s", facade_exc)
+
             return True
         except Exception as exc:
             logger.warning("Failed to store auto-captured content: %s", exc)

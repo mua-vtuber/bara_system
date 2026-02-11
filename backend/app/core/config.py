@@ -23,6 +23,20 @@ from app.core.constants import (
     EMBEDDING_DEFAULT_MODEL,
     EMBEDDING_DEDUP_THRESHOLD,
     EMBEDDING_SIMILARITY_THRESHOLD,
+    MEMORY_CONTEXT_TOTAL_BUDGET,
+    MEMORY_EVOLUTION_INTERVAL_HOURS,
+    MEMORY_EXTRACTION_CONFIDENCE_THRESHOLD,
+    MEMORY_EXTRACTION_MIN_IMPORTANCE,
+    MEMORY_GRAPH_MAX_HOPS,
+    MEMORY_MERGE_MAX_CANDIDATES,
+    MEMORY_MERGE_SIMILARITY_THRESHOLD,
+    MEMORY_PRUNE_IMPORTANCE_THRESHOLD,
+    MEMORY_RECENCY_HALF_LIFE_DAYS,
+    MEMORY_REFLECTION_THRESHOLD,
+    MEMORY_RETRIEVAL_LIMIT,
+    MEMORY_SCORE_W_IMPORTANCE,
+    MEMORY_SCORE_W_RECENCY,
+    MEMORY_SCORE_W_RELEVANCE,
     MIN_COMMENT_LENGTH,
     DEFAULT_KOREAN_RATIO_THRESHOLD,
 )
@@ -131,6 +145,27 @@ class EmbeddingConfig(BaseModel):
     dedup_threshold: float = EMBEDDING_DEDUP_THRESHOLD
 
 
+class MemoryConfig(BaseModel):
+    extraction_enabled: bool = True
+    extraction_min_importance: float = MEMORY_EXTRACTION_MIN_IMPORTANCE
+    extraction_confidence_threshold: float = MEMORY_EXTRACTION_CONFIDENCE_THRESHOLD
+    reflection_enabled: bool = True
+    reflection_threshold: int = MEMORY_REFLECTION_THRESHOLD
+    evolution_enabled: bool = True
+    evolution_interval_hours: int = MEMORY_EVOLUTION_INTERVAL_HOURS
+    merge_similarity_threshold: float = MEMORY_MERGE_SIMILARITY_THRESHOLD
+    merge_max_candidates: int = MEMORY_MERGE_MAX_CANDIDATES
+    prune_importance_threshold: float = MEMORY_PRUNE_IMPORTANCE_THRESHOLD
+    recency_half_life_days: float = MEMORY_RECENCY_HALF_LIFE_DAYS
+    context_total_budget: int = MEMORY_CONTEXT_TOTAL_BUDGET
+    retrieval_limit: int = MEMORY_RETRIEVAL_LIMIT
+    graph_max_hops: int = MEMORY_GRAPH_MAX_HOPS
+    fts_enabled: bool = True
+    score_w_recency: float = MEMORY_SCORE_W_RECENCY
+    score_w_relevance: float = MEMORY_SCORE_W_RELEVANCE
+    score_w_importance: float = MEMORY_SCORE_W_IMPORTANCE
+
+
 class EnvSettings(BaseSettings):
     """Loads secrets from .env file or environment variables."""
 
@@ -162,6 +197,7 @@ class Config:
         ui: UIConfig,
         personality: PersonalityConfig,
         embedding: EmbeddingConfig,
+        memory: MemoryConfig,
         env: EnvSettings,
         config_path: Optional[Path] = None,
     ) -> None:
@@ -174,6 +210,7 @@ class Config:
         self.ui = ui
         self.personality = personality
         self.embedding = embedding
+        self.memory = memory
         self.env = env
         self.config_path = config_path
         self._observers: list[Callable[[str, Any, Any], Any]] = []
@@ -219,6 +256,7 @@ class Config:
                 ui=UIConfig(**raw.get("ui", {})),
                 personality=PersonalityConfig(**raw.get("personality", {})),
                 embedding=EmbeddingConfig(**raw.get("embedding", {})),
+                memory=MemoryConfig(**raw.get("memory", {})),
                 env=env,
                 config_path=config_path,
             )
@@ -283,7 +321,7 @@ class Config:
 
         raw = json.loads(self.config_path.read_text(encoding="utf-8"))
 
-        mutable_sections = ("behavior", "voice", "web_security", "security", "ui", "personality", "embedding")
+        mutable_sections = ("behavior", "voice", "web_security", "security", "ui", "personality", "embedding", "memory")
         for section in mutable_sections:
             if section in raw:
                 await self.update_section(section, raw[section])
@@ -299,6 +337,7 @@ class Config:
             "ui": self.ui.model_dump(),
             "personality": self.personality.model_dump(),
             "embedding": self.embedding.model_dump(),
+            "memory": self.memory.model_dump(),
         }
 
     # ------------------------------------------------------------------

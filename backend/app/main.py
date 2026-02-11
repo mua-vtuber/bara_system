@@ -57,12 +57,14 @@ from app.models.events import (
 from app.repositories.collected_info import CollectedInfoRepository
 from app.repositories.good_example import GoodExampleRepository
 from app.repositories.memory import BotMemoryRepository
+from app.repositories.memory_store import MemoryStoreRepository
 from app.repositories.mission import MissionRepository
 from app.services.activity_mixer import ActivityMixer
 from app.services.auto_capture import AutoCaptureService
 from app.services.embedding import EmbeddingService
 from app.services.example_evaluator import ExampleEvaluatorService
 from app.services.memory import MemoryService
+from app.services.memory.facade import MemoryFacade
 from app.services.mission import MissionService
 from app.services.prompt_builder import PromptBuilder
 from app.services.response_collector import ResponseCollector
@@ -226,6 +228,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         embedding_service=embedding_service,
     )
 
+    # -- Knowledge-graph memory facade (new memory system) ---------------------
+    memory_store_repo = MemoryStoreRepository(db)
+    memory_facade: MemoryFacade | None = None
+
+    if embedding_service is not None:
+        memory_facade = MemoryFacade(
+            config=config,
+            store=memory_store_repo,
+            embedding_service=embedding_service,
+            llm_service=llm_service,
+        )
+        # Wire facade into legacy services
+        memory_service.set_facade(memory_facade)
+        auto_capture.set_memory_facade(memory_facade)
+
+        # Run legacy data migration (idempotent, skips if already done)
+        try:
+            from app.services.memory.migration import run_legacy_migration
+            await run_legacy_migration(db, memory_store_repo)
+        except Exception as mig_exc:
+            logger.warning("Legacy memory migration failed (non-fatal): %s", mig_exc)
+
+        logger.info("Knowledge-graph memory system initialized")
+    else:
+        logger.info("Knowledge-graph memory system disabled (embedding required)")
+
     # -- Example evaluator service ---------------------------------------------
     example_evaluator = ExampleEvaluatorService(
         activity_repo=activity_repo,
@@ -285,6 +313,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.auto_capture = auto_capture
     app.state.example_evaluator = example_evaluator
     app.state.good_example_repo = good_example_repo
+    app.state.memory_facade = memory_facade
+    app.state.memory_store_repo = memory_store_repo
 
     # -- Start automation (task queue + scheduler) -----------------------------
     await task_queue.start()
@@ -307,6 +337,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             example_evaluator.evaluate_recent_activities,
             3600,  # 1 hour
         )
+        if memory_facade is not None:
+            await scheduler.add_task(
+                "memory_maintenance",
+                memory_facade.run_maintenance,
+                config.memory.evolution_interval_hours * 3600,
+            )
         logger.info("Auto-mode enabled: scheduler started")
     else:
         logger.info("Auto-mode disabled: scheduler idle (start via API)")

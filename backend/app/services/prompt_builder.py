@@ -98,8 +98,15 @@ class PromptBuilder:
         related_info: list[CollectedInfo] | None = None,
         related_scores: dict[int, float] | None = None,
         fewshot_context: str = "",
+        memory_context: str = "",
+        entity_context: str = "",
     ) -> str:
-        """Build a prompt for generating a comment on a post."""
+        """Build a prompt for generating a comment on a post.
+
+        When ``memory_context`` / ``entity_context`` are provided (from
+        ContextAssembler), they take precedence over the legacy
+        ``memories`` / ``related_info`` sections.
+        """
         sanitize = self._security.sanitize_input
         sections: list[str] = []
 
@@ -119,37 +126,46 @@ class PromptBuilder:
         if post.author:
             sections.append(f"작성자: {sanitize(post.author)}")
 
-        # Memory context: what we know about the author
-        if memories:
-            author_memory = next(
-                (m for m in memories if m.entity_name == post.author), None
-            )
-            if author_memory and author_memory.interaction_count > 0:
+        # New-style assembled context (takes precedence)
+        if entity_context or memory_context:
+            if entity_context:
                 sections.append("")
-                sections.append(f"[참고] 이 봇({sanitize(post.author or '')})과는 "
-                              f"이전에 {author_memory.interaction_count}번 상호작용했습니다.")
-                if author_memory.topics:
-                    sections.append(f"주로 다루는 주제: {', '.join(author_memory.topics[:5])}")
-                if author_memory.relationship_notes:
-                    sections.append(f"관계 메모: {author_memory.relationship_notes[:200]}")
+                sections.append(entity_context)
+            if memory_context:
+                sections.append("")
+                sections.append(memory_context)
+        else:
+            # Legacy memory context: what we know about the author
+            if memories:
+                author_memory = next(
+                    (m for m in memories if m.entity_name == post.author), None
+                )
+                if author_memory and author_memory.interaction_count > 0:
+                    sections.append("")
+                    sections.append(f"[참고] 이 봇({sanitize(post.author or '')})과는 "
+                                  f"이전에 {author_memory.interaction_count}번 상호작용했습니다.")
+                    if author_memory.topics:
+                        sections.append(f"주로 다루는 주제: {', '.join(author_memory.topics[:5])}")
+                    if author_memory.relationship_notes:
+                        sections.append(f"관계 메모: {author_memory.relationship_notes[:200]}")
 
-        # Related collected info (sorted by relevance score if available)
-        if related_info:
-            sections.append("")
-            sections.append("[참고] 관련 기억:")
-            scored_info = related_info[:3]
-            if related_scores:
-                scored_info = sorted(
-                    related_info[:5],
-                    key=lambda i: related_scores.get(i.id, 0.0),
-                    reverse=True,
-                )[:3]
-            for info in scored_info:
-                preview = (info.content or "")[:100]
-                score_str = ""
-                if related_scores and info.id in related_scores:
-                    score_str = f" (관련도: {related_scores[info.id]:.0%})"
-                sections.append(f"- {sanitize(info.title or '무제')}: {sanitize(preview)}{score_str}")
+            # Related collected info (sorted by relevance score if available)
+            if related_info:
+                sections.append("")
+                sections.append("[참고] 관련 기억:")
+                scored_info = related_info[:3]
+                if related_scores:
+                    scored_info = sorted(
+                        related_info[:5],
+                        key=lambda i: related_scores.get(i.id, 0.0),
+                        reverse=True,
+                    )[:3]
+                for info in scored_info:
+                    preview = (info.content or "")[:100]
+                    score_str = ""
+                    if related_scores and info.id in related_scores:
+                        score_str = f" (관련도: {related_scores[info.id]:.0%})"
+                    sections.append(f"- {sanitize(info.title or '무제')}: {sanitize(preview)}{score_str}")
 
         sections.append("")
         sections.append("댓글:")

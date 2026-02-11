@@ -46,6 +46,7 @@ STOP_BOT
 
 # Claude Code
 .claude/
+.omc/
 
 # Windows artifacts
 nul
